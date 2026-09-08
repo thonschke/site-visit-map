@@ -31,10 +31,17 @@
   }
 
   #app {
-    position: relative;
+    display: flex;
+    flex-direction: column;
     width: 100%;
     height: 100vh;
     min-height: 480px;
+  }
+
+  #mapWrap {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   #map {
@@ -43,17 +50,22 @@
   }
 
   .header {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
     z-index: 500;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 18px;
-    background: linear-gradient(to bottom, rgba(15,27,45,0.92), rgba(15,27,45,0));
-    pointer-events: none;
+    flex-wrap: wrap;
+    row-gap: 8px;
+    padding: 12px 18px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--surface-line);
+  }
+
+  .header-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px 14px;
   }
 
   .header h1 {
@@ -147,7 +159,6 @@
   .popup-priority { color: var(--paper-dim); font-size: 12px; margin-bottom: 6px; }
 
   .filter-toggle {
-    pointer-events: auto;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -172,11 +183,12 @@
 
   .filter-panel {
     position: absolute;
-    top: 58px;
-    right: 18px;
+    top: 12px;
+    right: 12px;
     z-index: 600;
     width: 260px;
-    max-height: calc(100vh - 90px);
+    max-width: calc(100% - 24px);
+    max-height: calc(100% - 24px);
     overflow-y: auto;
     background: var(--surface);
     border: 1px solid var(--surface-line);
@@ -252,10 +264,9 @@
   .match-mode input { accent-color: var(--accent); }
 
   .search-bar {
-    pointer-events: auto;
     position: absolute;
-    top: 58px;
-    left: 18px;
+    top: 12px;
+    left: 12px;
     z-index: 500;
     display: flex;
     align-items: center;
@@ -265,6 +276,7 @@
     border-radius: 4px;
     padding: 4px 4px 4px 10px;
     width: 240px;
+    max-width: calc(100% - 24px);
   }
   .search-bar input {
     flex: 1;
@@ -283,7 +295,7 @@
     border-radius: 3px;
     font-size: 12px;
     font-weight: 600;
-    padding: 6px 10px;
+    padding: 8px 12px;
     cursor: pointer;
     flex: 0 0 auto;
   }
@@ -293,8 +305,8 @@
   }
   .search-status {
     position: absolute;
-    top: 100px;
-    left: 18px;
+    top: 56px;
+    left: 12px;
     z-index: 500;
     font-size: 12px;
     color: var(--paper-dim);
@@ -302,11 +314,11 @@
     border: 1px solid var(--surface-line);
     border-radius: 4px;
     padding: 6px 10px;
+    max-width: calc(100% - 24px);
     display: none;
   }
 
   .color-by {
-    pointer-events: auto;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -321,16 +333,66 @@
     font-size: 12px;
     padding: 4px 6px;
   }
+
+  @media (max-width: 640px) {
+    .header {
+      padding: 10px 12px;
+    }
+    .header h1 {
+      font-size: 15px;
+    }
+    .header-controls {
+      width: 100%;
+      justify-content: space-between;
+    }
+    .color-by {
+      font-size: 11px;
+    }
+    .color-by select {
+      font-size: 11px;
+      padding: 6px 6px;
+    }
+    .filter-toggle {
+      padding: 9px 12px; /* bigger tap target */
+    }
+    .search-bar {
+      width: calc(100% - 24px);
+    }
+    .search-bar input {
+      font-size: 16px; /* prevents iOS Safari auto-zoom on focus */
+    }
+    .search-bar button {
+      padding: 10px 14px;
+    }
+    .filter-panel {
+      width: calc(100% - 24px);
+    }
+    .filter-option {
+      padding: 8px 0 8px 18px; /* bigger tap target */
+      font-size: 14px;
+    }
+    .filter-option input,
+    .match-mode input {
+      width: 18px;
+      height: 18px;
+    }
+    .legend {
+      font-size: 12px;
+      max-width: calc(100% - 24px);
+    }
+    .clear-filters {
+      font-size: 13px;
+      padding: 4px 0; /* bigger tap target */
+    }
+  }
 </style>
 </head>
 <body>
 
 <div id="app">
-  <div id="map"></div>
-
   <div class="header">
     <h1>Site visits</h1>
-    <div style="display:flex; align-items:center; gap:14px;">
+    <div class="header-controls">
       <div class="color-by">
         <span>Color by</span>
         <select id="colorBySelect"></select>
@@ -342,26 +404,30 @@
     </div>
   </div>
 
-  <div class="search-bar">
-    <input type="text" id="searchInput" placeholder="Search an address…" />
-    <button id="searchButton">Go</button>
-  </div>
-  <div class="search-status" id="searchStatus"></div>
+  <div id="mapWrap">
+    <div id="map"></div>
 
-  <div class="filter-panel" id="filterPanel">
-    <div class="filter-panel-header">
-      <h3>Filter sites</h3>
-      <button class="clear-filters" id="clearFilters">Clear all</button>
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search an address…" />
+      <button id="searchButton">Go</button>
     </div>
-    <div id="filterGroups"></div>
-  </div>
+    <div class="search-status" id="searchStatus"></div>
 
-  <div class="legend" id="legend" style="display:none;"></div>
+    <div class="filter-panel" id="filterPanel">
+      <div class="filter-panel-header">
+        <h3>Filter sites</h3>
+        <button class="clear-filters" id="clearFilters">Clear all</button>
+      </div>
+      <div id="filterGroups"></div>
+    </div>
 
-  <div class="status" id="status">
-    <div class="status-box">
-      <h2>Loading site visits…</h2>
-      <p>Pulling the latest data from the reports database.</p>
+    <div class="legend" id="legend" style="display:none;"></div>
+
+    <div class="status" id="status">
+      <div class="status-box">
+        <h2>Loading site visits…</h2>
+        <p>Pulling the latest data from the reports database.</p>
+      </div>
     </div>
   </div>
 </div>
