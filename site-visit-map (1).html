@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Site Visit Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root {
+    --ink: #0F1B2D;
+    --surface: #16263D;
+    --surface-line: #2A3B54;
+    --paper: #EDEFF2;
+    --paper-dim: #A8B4C4;
+    --accent: #F5A623;
+
+    --c-fresh: #2FA88A;
+    --c-week1: #F5C244;
+    --c-week2: #E8790C;
+    --c-week3: #D0392B;
+    --c-unvisited: #6B7A8F;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+
+  #app {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    min-height: 480px;
+  }
+
+  #map {
+    position: absolute;
+    inset: 0;
+  }
+
+  .header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    background: linear-gradient(to bottom, rgba(15,27,45,0.92), rgba(15,27,45,0));
+    pointer-events: none;
+  }
+
+  .header h1 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+
+  .header .count {
+    color: var(--paper-dim);
+    font-size: 13px;
+  }
+
+  .legend {
+    position: absolute;
+    bottom: 22px;
+    left: 18px;
+    z-index: 500;
+    background: var(--surface);
+    border: 1px solid var(--surface-line);
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-size: 13px;
+    line-height: 1.9;
+    min-width: 168px;
+  }
+
+  .legend-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+  }
+
+  .status {
+    position: absolute;
+    inset: 0;
+    z-index: 400;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 32px;
+  }
+
+  .status-box {
+    max-width: 380px;
+  }
+
+  .status-box h2 {
+    font-size: 16px;
+    margin: 0 0 8px;
+    font-weight: 600;
+  }
+
+  .status-box p {
+    margin: 0;
+    color: var(--paper-dim);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .status-box code {
+    display: block;
+    margin-top: 12px;
+    background: var(--surface);
+    border: 1px solid var(--surface-line);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--accent);
+    word-break: break-all;
+    text-align: left;
+  }
+
+  .leaflet-popup-content-wrapper {
+    background: var(--surface);
+    color: var(--paper);
+    border-radius: 4px;
+  }
+  .leaflet-popup-tip { background: var(--surface); }
+  .leaflet-popup-content a { color: var(--accent); }
+  .popup-title { font-weight: 600; margin-bottom: 2px; }
+  .popup-priority { color: var(--paper-dim); font-size: 12px; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="map"></div>
+
+  <div class="header">
+    <h1>Site visits</h1>
+    <span class="count" id="pointCount"></span>
+  </div>
+
+  <div class="legend" id="legend" style="display:none;"></div>
+
+  <div class="status" id="status">
+    <div class="status-box">
+      <h2>Loading site visits…</h2>
+      <p>Pulling the latest data from the reports database.</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  // ---- CONFIG -----------------------------------------------------------
+  // Raw URL of the GitHub Gist that publishMapData keeps updated. Format:
+  // https://gist.githubusercontent.com/USERNAME/GIST_ID/raw/FILENAME
+  // (grab the exact URL from the gist page's "Raw" button on the file).
+  const MAP_DATA_URL = "https://gist.githubusercontent.com/thonschke/9836a09704d9b338a76c6ad413912d32/raw/map-data.json";
+
+  // Center the map roughly over your service area on first load.
+  const DEFAULT_CENTER = [39.5, -75.5];
+  const DEFAULT_ZOOM = 8;
+
+  // How often the map re-fetches data on its own, in milliseconds.
+  // No need to poll faster than publishMapData actually republishes.
+  const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+  // -------------------------------------------------------------------------
+
+  const PRIORITY_COLORS = {
+    "< 1 week": "#2FA88A",
+    "More than 1 week": "#F5C244",
+    "More than 2 weeks": "#E8790C",
+    "More than 3 weeks": "#D0392B",
+    "Not Visited": "#6B7A8F",
+  };
+  const PRIORITY_ORDER = [
+    "< 1 week",
+    "More than 1 week",
+    "More than 2 weeks",
+    "More than 3 weeks",
+    "Not Visited",
+  ];
+
+  const statusEl = document.getElementById("status");
+  const legendEl = document.getElementById("legend");
+  const countEl = document.getElementById("pointCount");
+
+  function showError(title, detail) {
+    statusEl.style.display = "flex";
+    statusEl.innerHTML = `
+      <div class="status-box">
+        <h2>${title}</h2>
+        <p>${detail}</p>
+      </div>
+    `;
+  }
+
+  function renderLegend(presentPriorities) {
+    legendEl.innerHTML = PRIORITY_ORDER
+      .filter((p) => presentPriorities.has(p))
+      .map(
+        (p) => `
+          <div class="legend-row">
+            <span class="legend-dot" style="background:${PRIORITY_COLORS[p]}"></span>
+            <span>${p}</span>
+          </div>`
+      )
+      .join("");
+    legendEl.style.display = "block";
+  }
+
+  let map = null;
+  let markersLayer = null;
+  let hasFitBoundsOnce = false;
+
+  async function fetchPoints() {
+    const res = await fetch(`${MAP_DATA_URL}?t=${Date.now()}`); // cache-bust so we don't see a stale cached copy right after a scheduled update
+    if (!res.ok) {
+      throw new Error(`Server responded with status ${res.status}`);
+    }
+    return (await res.json()) || [];
+  }
+
+  function renderPoints(points) {
+    markersLayer.clearLayers();
+
+    const bounds = [];
+    const presentPriorities = new Set();
+
+    points.forEach((point) => {
+      const known = Boolean(PRIORITY_COLORS[point.priority]);
+      const color = known ? PRIORITY_COLORS[point.priority] : PRIORITY_COLORS["Not Visited"];
+      presentPriorities.add(known ? point.priority : "Not Visited");
+
+      const marker = L.circleMarker([point.lat, point.lng], {
+        radius: 7,
+        color: color,
+        fillColor: color,
+        fillOpacity: 0.85,
+        weight: 1.5,
+      });
+
+      marker.bindPopup(`
+        <div class="popup-title">${escapeHtml(point.name || "Untitled")}</div>
+        <div class="popup-priority">${escapeHtml(point.priority || "Unknown")}</div>
+        ${point.url ? `<a href="${point.url}" target="_blank" rel="noopener">Open in Notion</a>` : ""}
+      `);
+
+      marker.addTo(markersLayer);
+      bounds.push([point.lat, point.lng]);
+    });
+
+    countEl.textContent = `${points.length} site${points.length === 1 ? "" : "s"}`;
+    renderLegend(presentPriorities);
+
+    // Only auto-fit the view the FIRST time points load — on later refreshes,
+    // leave the view alone so we don't yank the map out from under someone
+    // who's currently panned/zoomed in on a specific area.
+    if (!hasFitBoundsOnce && bounds.length > 0) {
+      if (bounds.length > 1) {
+        map.fitBounds(bounds, { padding: [40, 40] });
+      } else {
+        map.setView(bounds[0], 13);
+      }
+      hasFitBoundsOnce = true;
+    }
+  }
+
+  async function refreshData({ isInitialLoad } = {}) {
+    let points;
+    try {
+      points = await fetchPoints();
+    } catch (err) {
+      if (isInitialLoad) {
+        showError(
+          "Couldn't load site visits",
+          `The map couldn't reach the data source. Details: ${err.message}`
+        );
+      } else {
+        // Don't blow away an already-working map over a transient refresh
+        // failure — just note it quietly and try again next interval.
+        console.warn("Map refresh failed:", err);
+      }
+      return;
+    }
+
+    if (isInitialLoad && points.length === 0) {
+      showError(
+        "No site visits to show",
+        "The data source returned no records with a location set."
+      );
+      return;
+    }
+
+    if (isInitialLoad) {
+      statusEl.style.display = "none";
+    }
+
+    renderPoints(points);
+  }
+
+  async function loadMap() {
+    if (!MAP_DATA_URL || MAP_DATA_URL.startsWith("REPLACE_WITH")) {
+      showError(
+        "Map data URL not set",
+        "Open this file and set MAP_DATA_URL to the gist's raw URL."
+      );
+      return;
+    }
+
+    map = L.map("map").setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(map);
+    markersLayer = L.layerGroup().addTo(map);
+
+    await refreshData({ isInitialLoad: true });
+
+    setInterval(() => refreshData({ isInitialLoad: false }), REFRESH_INTERVAL_MS);
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  loadMap();
+</script>
+
+</body>
+</html>
