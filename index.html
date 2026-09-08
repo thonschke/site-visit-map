@@ -656,7 +656,7 @@
 
       const marker = L.circleMarker([point.lat, point.lng], {
         radius: 7,
-        color: "#FFFFFF",
+        color: "#0F1B2D",
         fillColor: color,
         fillOpacity: 1,
         weight: 1.5,
@@ -735,10 +735,8 @@
     }
 
     map = L.map("map").setView(DEFAULT_CENTER, DEFAULT_ZOOM);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-      subdomains: "abcd",
-      maxZoom: 20,
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
     }).addTo(map);
     markersLayer = L.layerGroup().addTo(map);
 
