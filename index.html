@@ -235,6 +235,22 @@
   }
   .filter-option input { accent-color: var(--accent); }
 
+  .match-mode {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--paper-dim);
+    padding: 2px 0 8px 18px;
+  }
+  .match-mode label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+  .match-mode input { accent-color: var(--accent); }
+
   .search-bar {
     pointer-events: auto;
     position: absolute;
@@ -539,10 +555,23 @@
     legendEl.style.display = "block";
   }
 
+  // Excluded from the "Trade" filter's checkbox list specifically — these
+  // are still counted in "Number of trades", just not selectable as a
+  // trade-type filter, since the ask was to filter by the four physical
+  // trades, not by contractor role.
+  const TRADE_FILTER_EXCLUDED = new Set(["General Contractor", "Subcontractor"]);
+
+  // AND = site must have ALL checked trades. OR = site must have ANY
+  // checked trade. Only meaningful for the "tradeType" category.
+  let tradeMatchMode = "OR";
+
   function buildFilterPanel(points) {
     filterGroupsEl.innerHTML = FILTER_DEFS.map((def) => {
       const seen = new Set(def.fixedOptions || []);
       points.forEach((p) => def.getValues(p).forEach((v) => seen.add(v)));
+      if (def.key === "tradeType") {
+        TRADE_FILTER_EXCLUDED.forEach((v) => seen.delete(v));
+      }
       const options = Array.from(seen).sort();
 
       const rows = options
@@ -557,9 +586,20 @@
         })
         .join("");
 
+      const matchModeToggle =
+        def.key === "tradeType"
+          ? `
+            <div class="match-mode">
+              <span>Match:</span>
+              <label><input type="radio" name="tradeMatchMode" value="OR" ${tradeMatchMode === "OR" ? "checked" : ""} /> Any (OR)</label>
+              <label><input type="radio" name="tradeMatchMode" value="AND" ${tradeMatchMode === "AND" ? "checked" : ""} /> All (AND)</label>
+            </div>`
+          : "";
+
       return `
         <details class="filter-group">
           <summary>${escapeHtml(def.label)}</summary>
+          ${matchModeToggle}
           ${rows}
         </details>`;
     }).join("");
@@ -576,6 +616,13 @@
         applyFilters();
       });
     });
+
+    filterGroupsEl.querySelectorAll('input[name="tradeMatchMode"]').forEach((input) => {
+      input.addEventListener("change", () => {
+        tradeMatchMode = input.value;
+        applyFilters();
+      });
+    });
   }
 
   function updateFilterBadge() {
@@ -589,6 +636,12 @@
       const selected = activeFilters[def.key];
       if (selected.size === 0) return true; // no filter set in this category = show all
       const values = def.getValues(point);
+
+      if (def.key === "tradeType" && tradeMatchMode === "AND") {
+        // Site must have EVERY checked trade.
+        return Array.from(selected).every((v) => values.includes(v));
+      }
+      // Default: site must have ANY checked value.
       return values.some((v) => selected.has(v));
     });
   }
