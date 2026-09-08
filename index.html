@@ -145,6 +145,95 @@
   .leaflet-popup-content a { color: var(--accent); }
   .popup-title { font-weight: 600; margin-bottom: 2px; }
   .popup-priority { color: var(--paper-dim); font-size: 12px; margin-bottom: 6px; }
+
+  .filter-toggle {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface);
+    border: 1px solid var(--surface-line);
+    color: var(--paper);
+    border-radius: 4px;
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .filter-toggle:hover { border-color: var(--accent); }
+  .filter-badge {
+    background: var(--accent);
+    color: var(--ink);
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 6px;
+    display: none;
+  }
+
+  .filter-panel {
+    position: absolute;
+    top: 58px;
+    right: 18px;
+    z-index: 600;
+    width: 260px;
+    max-height: calc(100vh - 90px);
+    overflow-y: auto;
+    background: var(--surface);
+    border: 1px solid var(--surface-line);
+    border-radius: 4px;
+    padding: 4px 14px 14px;
+    display: none;
+  }
+  .filter-panel.open { display: block; }
+
+  .filter-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0 6px;
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+  }
+  .filter-panel-header h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .clear-filters {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .filter-group summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 0;
+    list-style: none;
+  }
+  .filter-group summary::-webkit-details-marker { display: none; }
+  .filter-group summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: 6px;
+    color: var(--paper-dim);
+  }
+  .filter-group[open] summary::before { content: "▾"; }
+
+  .filter-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    padding: 4px 0 4px 18px;
+    color: var(--paper-dim);
+  }
+  .filter-option input { accent-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -154,7 +243,20 @@
 
   <div class="header">
     <h1>Site visits</h1>
-    <span class="count" id="pointCount"></span>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span class="count" id="pointCount"></span>
+      <button class="filter-toggle" id="filterToggle">
+        Filters <span class="filter-badge" id="filterBadge">0</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="filter-panel" id="filterPanel">
+    <div class="filter-panel-header">
+      <h3>Filter sites</h3>
+      <button class="clear-filters" id="clearFilters">Clear all</button>
+    </div>
+    <div id="filterGroups"></div>
   </div>
 
   <div class="legend" id="legend" style="display:none;"></div>
@@ -173,7 +275,7 @@
   // Raw URL of the GitHub Gist that publishMapData keeps updated. Format:
   // https://gist.githubusercontent.com/USERNAME/GIST_ID/raw/FILENAME
   // (grab the exact URL from the gist page's "Raw" button on the file).
-  const MAP_DATA_URL = "https://gist.githubusercontent.com/thonschke/9836a09704d9b338a76c6ad413912d32/raw/map-data.json";
+  const MAP_DATA_URL = "REPLACE_WITH_YOUR_GIST_RAW_URL";
 
   // Center the map roughly over your service area on first load.
   const DEFAULT_CENTER = [39.5, -75.5];
@@ -181,7 +283,7 @@
 
   // How often the map re-fetches data on its own, in milliseconds.
   // No need to poll faster than publishMapData actually republishes.
-  const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+  const REFRESH_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
   // -------------------------------------------------------------------------
 
   const PRIORITY_COLORS = {
@@ -199,9 +301,31 @@
     "Not Visited",
   ];
 
+  // Filter categories shown in the panel. `getValues` returns an array since
+  // a point can match more than one value in a category (e.g. multiple
+  // trades on one report) — a point passes a category filter if it has ANY
+  // selected value in that category. Categories combine with AND.
+  const FILTER_DEFS = [
+    { key: "priority", label: "Visit priority", getValues: (p) => [p.priority || "Unknown"], fixedOptions: PRIORITY_ORDER },
+    { key: "trades", label: "Trade", getValues: (p) => (p.trades && p.trades.length ? p.trades : ["None listed"]) },
+    { key: "status", label: "Status of project", getValues: (p) => [p.status || "Unknown"] },
+    { key: "publicOrPrivate", label: "Public / private", getValues: (p) => [p.publicOrPrivate || "Unknown"] },
+    { key: "unionStatus", label: "Union status", getValues: (p) => [p.unionStatus || "Unknown"] },
+    { key: "state", label: "State", getValues: (p) => [p.state || "Unknown"] },
+    { key: "county", label: "County", getValues: (p) => [p.county || "Unknown"] },
+  ];
+
+  const activeFilters = {};
+  FILTER_DEFS.forEach((def) => (activeFilters[def.key] = new Set()));
+
   const statusEl = document.getElementById("status");
   const legendEl = document.getElementById("legend");
   const countEl = document.getElementById("pointCount");
+  const filterToggleEl = document.getElementById("filterToggle");
+  const filterPanelEl = document.getElementById("filterPanel");
+  const filterGroupsEl = document.getElementById("filterGroups");
+  const filterBadgeEl = document.getElementById("filterBadge");
+  const clearFiltersEl = document.getElementById("clearFilters");
 
   function showError(title, detail) {
     statusEl.style.display = "flex";
@@ -227,6 +351,77 @@
     legendEl.style.display = "block";
   }
 
+  function buildFilterPanel(points) {
+    filterGroupsEl.innerHTML = FILTER_DEFS.map((def) => {
+      const seen = new Set(def.fixedOptions || []);
+      points.forEach((p) => def.getValues(p).forEach((v) => seen.add(v)));
+      const options = Array.from(seen).sort();
+
+      const rows = options
+        .map((opt) => {
+          const id = `f-${def.key}-${opt.replace(/[^a-z0-9]/gi, "_")}`;
+          const checked = activeFilters[def.key].has(opt) ? "checked" : "";
+          return `
+            <label class="filter-option" for="${id}">
+              <input type="checkbox" id="${id}" data-key="${def.key}" data-value="${escapeHtml(opt)}" ${checked} />
+              ${escapeHtml(opt)}
+            </label>`;
+        })
+        .join("");
+
+      return `
+        <details class="filter-group">
+          <summary>${escapeHtml(def.label)}</summary>
+          ${rows}
+        </details>`;
+    }).join("");
+
+    filterGroupsEl.querySelectorAll("input[type=checkbox]").forEach((input) => {
+      input.addEventListener("change", () => {
+        const { key, value } = input.dataset;
+        if (input.checked) {
+          activeFilters[key].add(value);
+        } else {
+          activeFilters[key].delete(value);
+        }
+        updateFilterBadge();
+        applyFilters();
+      });
+    });
+  }
+
+  function updateFilterBadge() {
+    const total = Object.values(activeFilters).reduce((sum, set) => sum + set.size, 0);
+    filterBadgeEl.textContent = String(total);
+    filterBadgeEl.style.display = total > 0 ? "inline-block" : "none";
+  }
+
+  function pointMatchesFilters(point) {
+    return FILTER_DEFS.every((def) => {
+      const selected = activeFilters[def.key];
+      if (selected.size === 0) return true; // no filter set in this category = show all
+      const values = def.getValues(point);
+      return values.some((v) => selected.has(v));
+    });
+  }
+
+  function applyFilters() {
+    const filtered = allPoints.filter(pointMatchesFilters);
+    renderPoints(filtered, { isFiltered: activeFilters && Object.values(activeFilters).some((s) => s.size > 0) });
+  }
+
+  filterToggleEl.addEventListener("click", () => {
+    filterPanelEl.classList.toggle("open");
+  });
+
+  clearFiltersEl.addEventListener("click", () => {
+    FILTER_DEFS.forEach((def) => activeFilters[def.key].clear());
+    filterGroupsEl.querySelectorAll("input[type=checkbox]").forEach((input) => (input.checked = false));
+    updateFilterBadge();
+    applyFilters();
+  });
+
+  let allPoints = [];
   let map = null;
   let markersLayer = null;
   let hasFitBoundsOnce = false;
@@ -239,7 +434,7 @@
     return (await res.json()) || [];
   }
 
-  function renderPoints(points) {
+  function renderPoints(points, { isFiltered } = {}) {
     markersLayer.clearLayers();
 
     const bounds = [];
@@ -268,12 +463,14 @@
       bounds.push([point.lat, point.lng]);
     });
 
-    countEl.textContent = `${points.length} site${points.length === 1 ? "" : "s"}`;
+    countEl.textContent = isFiltered
+      ? `${points.length} of ${allPoints.length} sites`
+      : `${points.length} site${points.length === 1 ? "" : "s"}`;
     renderLegend(presentPriorities);
 
-    // Only auto-fit the view the FIRST time points load — on later refreshes,
-    // leave the view alone so we don't yank the map out from under someone
-    // who's currently panned/zoomed in on a specific area.
+    // Only auto-fit the view the FIRST time points load — on later refreshes
+    // or filter changes, leave the view alone so we don't yank the map out
+    // from under someone who's currently panned/zoomed in on an area.
     if (!hasFitBoundsOnce && bounds.length > 0) {
       if (bounds.length > 1) {
         map.fitBounds(bounds, { padding: [40, 40] });
@@ -314,7 +511,9 @@
       statusEl.style.display = "none";
     }
 
-    renderPoints(points);
+    allPoints = points;
+    buildFilterPanel(allPoints); // rebuild options in case new values showed up
+    applyFilters();
   }
 
   async function loadMap() {
