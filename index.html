@@ -234,6 +234,76 @@
     color: var(--paper-dim);
   }
   .filter-option input { accent-color: var(--accent); }
+
+  .search-bar {
+    pointer-events: auto;
+    position: absolute;
+    top: 58px;
+    left: 18px;
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface);
+    border: 1px solid var(--surface-line);
+    border-radius: 4px;
+    padding: 4px 4px 4px 10px;
+    width: 240px;
+  }
+  .search-bar input {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--paper);
+    font-size: 13px;
+    outline: none;
+    min-width: 0;
+  }
+  .search-bar input::placeholder { color: var(--paper-dim); }
+  .search-bar button {
+    background: var(--accent);
+    color: var(--ink);
+    border: none;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 10px;
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+  .search-bar button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .search-status {
+    position: absolute;
+    top: 100px;
+    left: 18px;
+    z-index: 500;
+    font-size: 12px;
+    color: var(--paper-dim);
+    background: var(--surface);
+    border: 1px solid var(--surface-line);
+    border-radius: 4px;
+    padding: 6px 10px;
+    display: none;
+  }
+
+  .color-by {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--paper-dim);
+  }
+  .color-by select {
+    background: var(--surface);
+    color: var(--paper);
+    border: 1px solid var(--surface-line);
+    border-radius: 4px;
+    font-size: 12px;
+    padding: 4px 6px;
+  }
 </style>
 </head>
 <body>
@@ -243,13 +313,23 @@
 
   <div class="header">
     <h1>Site visits</h1>
-    <div style="display:flex; align-items:center; gap:10px;">
+    <div style="display:flex; align-items:center; gap:14px;">
+      <div class="color-by">
+        <span>Color by</span>
+        <select id="colorBySelect"></select>
+      </div>
       <span class="count" id="pointCount"></span>
       <button class="filter-toggle" id="filterToggle">
         Filters <span class="filter-badge" id="filterBadge">0</span>
       </button>
     </div>
   </div>
+
+  <div class="search-bar">
+    <input type="text" id="searchInput" placeholder="Search an address…" />
+    <button id="searchButton">Go</button>
+  </div>
+  <div class="search-status" id="searchStatus"></div>
 
   <div class="filter-panel" id="filterPanel">
     <div class="filter-panel-header">
@@ -318,6 +398,11 @@
   const activeFilters = {};
   FILTER_DEFS.forEach((def) => (activeFilters[def.key] = new Set()));
 
+  // Which category currently determines pin color. Defaults to priority,
+  // since that has fixed, deliberately-chosen colors. Every other category
+  // gets colors generated on the fly (see colorForValue below).
+  let colorByKey = "priority";
+
   const statusEl = document.getElementById("status");
   const legendEl = document.getElementById("legend");
   const countEl = document.getElementById("pointCount");
@@ -326,6 +411,46 @@
   const filterGroupsEl = document.getElementById("filterGroups");
   const filterBadgeEl = document.getElementById("filterBadge");
   const clearFiltersEl = document.getElementById("clearFilters");
+  const colorBySelectEl = document.getElementById("colorBySelect");
+  const searchInputEl = document.getElementById("searchInput");
+  const searchButtonEl = document.getElementById("searchButton");
+  const searchStatusEl = document.getElementById("searchStatus");
+
+  colorBySelectEl.innerHTML = FILTER_DEFS
+    .filter((def) => def.key !== "trades") // a point can have multiple trades — not a clean single color axis
+    .map((def) => `<option value="${def.key}">${escapeHtml(def.label)}</option>`)
+    .join("");
+  colorBySelectEl.value = colorByKey;
+  colorBySelectEl.addEventListener("change", () => {
+    colorByKey = colorBySelectEl.value;
+    applyFilters();
+  });
+
+  // Deterministic color for an arbitrary string — same value always gets
+  // the same color across refreshes/sessions, without needing a hand-picked
+  // palette for open-ended fields like State, County, or Status.
+  const colorCache = new Map();
+  function colorForValue(value) {
+    if (colorCache.has(value)) return colorCache.get(value);
+    let hash = 0;
+    for (let i = 0; i < value.length; i++) {
+      hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+    }
+    const hue = hash % 360;
+    const color = `hsl(${hue}, 65%, 55%)`;
+    colorCache.set(value, color);
+    return color;
+  }
+
+  function colorForPoint(point) {
+    if (colorByKey === "priority") {
+      return PRIORITY_COLORS[point.priority] || PRIORITY_COLORS["Not Visited"];
+    }
+    const def = FILTER_DEFS.find((d) => d.key === colorByKey);
+    const values = def ? def.getValues(point) : [];
+    const primary = values[0] || "Unknown";
+    return colorForValue(primary);
+  }
 
   function showError(title, detail) {
     statusEl.style.display = "flex";
@@ -337,16 +462,21 @@
     `;
   }
 
-  function renderLegend(presentPriorities) {
-    legendEl.innerHTML = PRIORITY_ORDER
-      .filter((p) => presentPriorities.has(p))
-      .map(
-        (p) => `
+  function renderLegend(presentValues) {
+    const isPriority = colorByKey === "priority";
+    const orderedValues = isPriority
+      ? PRIORITY_ORDER.filter((p) => presentValues.has(p))
+      : Array.from(presentValues).sort();
+
+    legendEl.innerHTML = orderedValues
+      .map((v) => {
+        const color = isPriority ? PRIORITY_COLORS[v] : colorForValue(v);
+        return `
           <div class="legend-row">
-            <span class="legend-dot" style="background:${PRIORITY_COLORS[p]}"></span>
-            <span>${p}</span>
-          </div>`
-      )
+            <span class="legend-dot" style="background:${color}"></span>
+            <span>${escapeHtml(v)}</span>
+          </div>`;
+      })
       .join("");
     legendEl.style.display = "block";
   }
@@ -424,7 +554,54 @@
   let allPoints = [];
   let map = null;
   let markersLayer = null;
+  let searchMarker = null;
   let hasFitBoundsOnce = false;
+
+  async function searchAddress() {
+    const query = searchInputEl.value.trim();
+    if (!query) return;
+
+    searchButtonEl.disabled = true;
+    searchStatusEl.style.display = "block";
+    searchStatusEl.textContent = "Searching…";
+
+    try {
+      // Nominatim: OpenStreetMap's free geocoding API — same data provider
+      // as the map tiles, no API key required. Please keep searches to
+      // deliberate, human-triggered lookups (not automated/bulk queries)
+      // per their usage policy.
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`
+      );
+      if (!res.ok) throw new Error(`Search failed (${res.status})`);
+      const results = await res.json();
+
+      if (!results.length) {
+        searchStatusEl.textContent = `No match found for "${query}".`;
+        return;
+      }
+
+      const { lat, lon, display_name } = results[0];
+      map.setView([parseFloat(lat), parseFloat(lon)], 15);
+
+      if (searchMarker) map.removeLayer(searchMarker);
+      searchMarker = L.marker([parseFloat(lat), parseFloat(lon)])
+        .addTo(map)
+        .bindPopup(escapeHtml(display_name))
+        .openPopup();
+
+      searchStatusEl.style.display = "none";
+    } catch (err) {
+      searchStatusEl.textContent = `Search failed: ${err.message}`;
+    } finally {
+      searchButtonEl.disabled = false;
+    }
+  }
+
+  searchButtonEl.addEventListener("click", searchAddress);
+  searchInputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") searchAddress();
+  });
 
   async function fetchPoints() {
     const res = await fetch(`${MAP_DATA_URL}?t=${Date.now()}`); // cache-bust so we don't see a stale cached copy right after a scheduled update
@@ -438,12 +615,16 @@
     markersLayer.clearLayers();
 
     const bounds = [];
-    const presentPriorities = new Set();
+    const presentValues = new Set();
+    const colorDef = FILTER_DEFS.find((d) => d.key === colorByKey);
 
     points.forEach((point) => {
-      const known = Boolean(PRIORITY_COLORS[point.priority]);
-      const color = known ? PRIORITY_COLORS[point.priority] : PRIORITY_COLORS["Not Visited"];
-      presentPriorities.add(known ? point.priority : "Not Visited");
+      const color = colorForPoint(point);
+      const legendValue =
+        colorByKey === "priority"
+          ? (PRIORITY_COLORS[point.priority] ? point.priority : "Not Visited")
+          : ((colorDef ? colorDef.getValues(point) : [])[0] || "Unknown");
+      presentValues.add(legendValue);
 
       const marker = L.circleMarker([point.lat, point.lng], {
         radius: 7,
@@ -466,7 +647,7 @@
     countEl.textContent = isFiltered
       ? `${points.length} of ${allPoints.length} sites`
       : `${points.length} site${points.length === 1 ? "" : "s"}`;
-    renderLegend(presentPriorities);
+    renderLegend(presentValues);
 
     // Only auto-fit the view the FIRST time points load — on later refreshes
     // or filter changes, leave the view alone so we don't yank the map out
