@@ -275,7 +275,7 @@
   // Raw URL of the GitHub Gist that publishMapData keeps updated. Format:
   // https://gist.githubusercontent.com/USERNAME/GIST_ID/raw/FILENAME
   // (grab the exact URL from the gist page's "Raw" button on the file).
-  const MAP_DATA_URL = "https://gist.githubusercontent.com/thonschke/9836a09704d9b338a76c6ad413912d32/raw/db186d28a46034f45c42c331d344533f21502b22/map-data.json";
+  const MAP_DATA_URL = "REPLACE_WITH_YOUR_GIST_RAW_URL";
 
   // Center the map roughly over your service area on first load.
   const DEFAULT_CENTER = [39.5, -75.5];
@@ -308,11 +308,11 @@
   const FILTER_DEFS = [
     { key: "priority", label: "Visit priority", getValues: (p) => [p.priority || "Unknown"], fixedOptions: PRIORITY_ORDER },
     { key: "trades", label: "Trade", getValues: (p) => (p.trades && p.trades.length ? p.trades : ["None listed"]) },
-    { key: "status", label: "Status of project", getValues: (p) => [p.status || "Unknown"] },
-    { key: "publicOrPrivate", label: "Public / private", getValues: (p) => [p.publicOrPrivate || "Unknown"] },
-    { key: "unionStatus", label: "Union status", getValues: (p) => [p.unionStatus || "Unknown"] },
-    { key: "state", label: "State", getValues: (p) => [p.state || "Unknown"] },
-    { key: "county", label: "County", getValues: (p) => [p.county || "Unknown"] },
+    { key: "status", label: "Status of project", getValues: (p) => (p.status && p.status.length ? p.status : ["Unknown"]) },
+    { key: "publicOrPrivate", label: "Public / private", getValues: (p) => (p.publicOrPrivate && p.publicOrPrivate.length ? p.publicOrPrivate : ["Unknown"]) },
+    { key: "unionStatus", label: "Union status", getValues: (p) => (p.unionStatus && p.unionStatus.length ? p.unionStatus : ["Unknown"]) },
+    { key: "state", label: "State", getValues: (p) => (p.state && p.state.length ? p.state : ["Unknown"]) },
+    { key: "county", label: "County", getValues: (p) => (p.county && p.county.length ? p.county : ["Unknown"]) },
   ];
 
   const activeFilters = {};
