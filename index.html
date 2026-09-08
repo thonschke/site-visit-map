@@ -389,6 +389,7 @@
   const FILTER_DEFS = [
     { key: "priority", label: "Visit priority", getValues: (p) => [p.priority || "Unknown"], fixedOptions: PRIORITY_ORDER },
     { key: "trades", label: "Number of trades", getValues: (p) => [tradeCountBucket((p.trades || []).length)] },
+    { key: "tradeType", label: "Trade", getValues: (p) => (p.trades && p.trades.length ? p.trades : ["None listed"]) },
     { key: "status", label: "Status of project", getValues: (p) => (p.status && p.status.length ? p.status : ["Unknown"]) },
     { key: "publicOrPrivate", label: "Public / private", getValues: (p) => (p.publicOrPrivate && p.publicOrPrivate.length ? p.publicOrPrivate : ["Unknown"]) },
     { key: "unionStatus", label: "Union status", getValues: (p) => (p.unionStatus && p.unionStatus.length ? p.unionStatus : ["Unknown"]) },
@@ -455,10 +456,12 @@
   function unionStatusColor(value) {
     // Matches by keyword rather than exact string, so this doesn't break if
     // the option is phrased slightly differently (e.g. "Non-Union" vs
-    // "non union" vs "Nonunion").
+    // "non union" vs "Nonunion"). Checked in this order deliberately —
+    // "mixed" first, since some labels contain both "mixed" and "non" as
+    // substrings (e.g. "Mixed / Non-Union"), and mixed should win that case.
     const v = (value || "").toLowerCase();
-    if (v.includes("non")) return "#D0392B"; // red
     if (v.includes("mixed")) return "#F5D90A"; // saturated yellow
+    if (v.includes("non")) return "#D0392B"; // red
     if (v.includes("union")) return "#2FA88A"; // green
     return UNKNOWN_COLOR;
   }
