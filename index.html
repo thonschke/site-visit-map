@@ -426,19 +426,47 @@
     applyFilters();
   });
 
+  // Manual color overrides, checked before falling back to the
+  // auto-generated hash color. Add more entries here as needed.
+  const STATUS_COLOR_SCALE = ["#d73027", "#fc8d59", "#fee08b", "#d9ef8b", "#91cf60", "#1a9850"];
+  const UNKNOWN_COLOR = "#9E9E9E";
+
+  // Assumed order: array[0] = Public, array[1] = Private. Swap the two
+  // values below if that's backwards for how your data actually reads.
+  const PUBLIC_PRIVATE_COLORS = {
+    Public: "#af8dc3",
+    Private: "#7fbf7b",
+  };
+
+  function statusColor(value) {
+    // Status values are formatted like "2 - Structure up - ...", so pull
+    // the leading number (0-5) and index into the scale.
+    const match = /^(\d+)/.exec(value || "");
+    if (match) {
+      const idx = parseInt(match[1], 10);
+      if (idx >= 0 && idx < STATUS_COLOR_SCALE.length) return STATUS_COLOR_SCALE[idx];
+    }
+    return UNKNOWN_COLOR;
+  }
+
   // Deterministic color for an arbitrary string — same value always gets
   // the same color across refreshes/sessions, without needing a hand-picked
-  // palette for open-ended fields like State, County, or Status.
+  // palette for open-ended fields like State or County.
   const colorCache = new Map();
-  function colorForValue(value) {
-    if (colorCache.has(value)) return colorCache.get(value);
+  function colorForValue(value, key) {
+    if (value === "Unknown" || !value) return UNKNOWN_COLOR;
+    if (key === "status") return statusColor(value);
+    if (key === "publicOrPrivate") return PUBLIC_PRIVATE_COLORS[value] || UNKNOWN_COLOR;
+
+    const cacheKey = `${key || ""}::${value}`;
+    if (colorCache.has(cacheKey)) return colorCache.get(cacheKey);
     let hash = 0;
     for (let i = 0; i < value.length; i++) {
       hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
     }
     const hue = hash % 360;
     const color = `hsl(${hue}, 65%, 55%)`;
-    colorCache.set(value, color);
+    colorCache.set(cacheKey, color);
     return color;
   }
 
@@ -449,7 +477,7 @@
     const def = FILTER_DEFS.find((d) => d.key === colorByKey);
     const values = def ? def.getValues(point) : [];
     const primary = values[0] || "Unknown";
-    return colorForValue(primary);
+    return colorForValue(primary, colorByKey);
   }
 
   function showError(title, detail) {
@@ -470,7 +498,7 @@
 
     legendEl.innerHTML = orderedValues
       .map((v) => {
-        const color = isPriority ? PRIORITY_COLORS[v] : colorForValue(v);
+        const color = isPriority ? PRIORITY_COLORS[v] : colorForValue(v, colorByKey);
         return `
           <div class="legend-row">
             <span class="legend-dot" style="background:${color}"></span>
