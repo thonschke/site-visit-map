@@ -547,7 +547,7 @@
 
 <div id="app">
   <div class="header">
-    <h1>Site visits</h1>
+    <h1>Organizing Site Visits</h1>
     <div class="header-controls">
       <div class="color-by">
         <span>Color by</span>
@@ -1263,7 +1263,7 @@
       return;
     }
 
-    map = L.map("map").setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+    map = L.map("map", { zoomControl: false }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "&copy; OpenStreetMap contributors",
     }).addTo(map);
