@@ -287,20 +287,44 @@
   }
   .match-mode input { accent-color: var(--accent); }
 
-  .search-bar {
+  .search-panel {
     position: absolute;
     top: 12px;
     left: 12px;
-    z-index: 500;
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    z-index: 600;
+    width: 260px;
+    max-width: calc(100% - 24px);
+    max-height: calc(100% - 24px);
+    overflow-y: auto;
     background: var(--surface);
     border: 1px solid var(--surface-line);
     border-radius: 4px;
+    padding: 4px 14px 14px;
+    display: none;
+  }
+  .search-panel.open { display: block; }
+
+  .search-section {
+    padding: 10px 0;
+  }
+  .search-section + .search-section {
+    border-top: 1px solid var(--surface-line);
+  }
+  .search-section-label {
+    display: block;
+    font-size: 12px;
+    color: var(--paper-dim);
+    margin-bottom: 6px;
+  }
+
+  .search-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--ink);
+    border: 1px solid var(--surface-line);
+    border-radius: 4px;
     padding: 4px 4px 4px 10px;
-    width: 240px;
-    max-width: calc(100% - 24px);
   }
   .search-bar input {
     flex: 1;
@@ -328,32 +352,20 @@
     cursor: default;
   }
   .search-status {
-    position: absolute;
-    top: 56px;
-    left: 12px;
-    z-index: 500;
+    margin-top: 6px;
     font-size: 12px;
     color: var(--paper-dim);
-    background: var(--surface);
+    background: var(--ink);
     border: 1px solid var(--surface-line);
     border-radius: 4px;
     padding: 6px 10px;
-    max-width: calc(100% - 24px);
     display: none;
   }
 
-  .site-search-bar {
-    position: absolute;
-    top: 100px;
-    left: 12px;
-    z-index: 500;
-    width: 240px;
-    max-width: calc(100% - 24px);
-  }
   .site-search-bar input {
     width: 100%;
     box-sizing: border-box;
-    background: var(--surface);
+    background: var(--ink);
     border: 1px solid var(--surface-line);
     border-radius: 4px;
     color: var(--paper);
@@ -366,10 +378,10 @@
 
   .site-search-results {
     margin-top: 4px;
-    background: var(--surface);
+    background: var(--ink);
     border: 1px solid var(--surface-line);
     border-radius: 4px;
-    max-height: 240px;
+    max-height: 200px;
     overflow-y: auto;
     display: none;
   }
@@ -381,7 +393,7 @@
     border-bottom: 1px solid var(--surface-line);
   }
   .site-search-result:last-child { border-bottom: none; }
-  .site-search-result:hover { background: var(--ink); }
+  .site-search-result:hover { background: var(--surface); }
   .site-search-result-name { color: var(--paper); }
   .site-search-result-meta { color: var(--paper-dim); font-size: 11px; margin-top: 2px; }
   .site-search-empty {
@@ -459,13 +471,11 @@
       font-size: 13px;
       padding: 2px 8px;
     }
-    .search-bar {
+    .search-panel {
       width: calc(100% - 24px);
-      padding: 6px 6px 6px 14px;
     }
-    .site-search-bar {
-      width: calc(100% - 24px);
-      top: 108px;
+    .search-bar {
+      padding: 6px 6px 6px 14px;
     }
     .site-search-bar input {
       font-size: 16px; /* prevents iOS Safari auto-zoom on focus */
@@ -543,6 +553,7 @@
         <select id="colorBySelect"></select>
       </div>
       <span class="count" id="pointCount"></span>
+      <button class="filter-toggle" id="searchToggle">Search</button>
       <button class="filter-toggle" id="filterToggle">
         Filters <span class="filter-badge" id="filterBadge">0</span>
       </button>
@@ -552,15 +563,27 @@
   <div id="mapWrap">
     <div id="map"></div>
 
-    <div class="search-bar">
-      <input type="text" id="searchInput" placeholder="Search an address…" />
-      <button id="searchButton">Go</button>
-    </div>
-    <div class="search-status" id="searchStatus"></div>
+    <div class="search-panel" id="searchPanel">
+      <div class="filter-panel-header">
+        <h3>Search</h3>
+      </div>
 
-    <div class="site-search-bar">
-      <input type="text" id="siteSearchInput" placeholder="Search sites by name…" />
-      <div class="site-search-results" id="siteSearchResults"></div>
+      <div class="search-section">
+        <label class="search-section-label" for="siteSearchInput">By site name</label>
+        <div class="site-search-bar">
+          <input type="text" id="siteSearchInput" placeholder="Search sites by name…" />
+        </div>
+        <div class="site-search-results" id="siteSearchResults"></div>
+      </div>
+
+      <div class="search-section">
+        <label class="search-section-label" for="searchInput">By address</label>
+        <div class="search-bar">
+          <input type="text" id="searchInput" placeholder="Search an address…" />
+          <button id="searchButton">Go</button>
+        </div>
+        <div class="search-status" id="searchStatus"></div>
+      </div>
     </div>
 
     <div class="filter-panel" id="filterPanel">
@@ -655,6 +678,8 @@
   const countEl = document.getElementById("pointCount");
   const filterToggleEl = document.getElementById("filterToggle");
   const filterPanelEl = document.getElementById("filterPanel");
+  const searchToggleEl = document.getElementById("searchToggle");
+  const searchPanelEl = document.getElementById("searchPanel");
   const filterGroupsEl = document.getElementById("filterGroups");
   const filterBadgeEl = document.getElementById("filterBadge");
   const clearFiltersEl = document.getElementById("clearFilters");
@@ -883,7 +908,13 @@
   }
 
   filterToggleEl.addEventListener("click", () => {
+    searchPanelEl.classList.remove("open");
     filterPanelEl.classList.toggle("open");
+  });
+
+  searchToggleEl.addEventListener("click", () => {
+    filterPanelEl.classList.remove("open");
+    searchPanelEl.classList.toggle("open");
   });
 
   clearFiltersEl.addEventListener("click", () => {
