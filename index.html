@@ -342,6 +342,54 @@
     display: none;
   }
 
+  .site-search-bar {
+    position: absolute;
+    top: 100px;
+    left: 12px;
+    z-index: 500;
+    width: 240px;
+    max-width: calc(100% - 24px);
+  }
+  .site-search-bar input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--surface);
+    border: 1px solid var(--surface-line);
+    border-radius: 4px;
+    color: var(--paper);
+    font-size: 13px;
+    padding: 8px 10px;
+    outline: none;
+  }
+  .site-search-bar input::placeholder { color: var(--paper-dim); }
+  .site-search-bar input:focus { border-color: var(--accent); }
+
+  .site-search-results {
+    margin-top: 4px;
+    background: var(--surface);
+    border: 1px solid var(--surface-line);
+    border-radius: 4px;
+    max-height: 240px;
+    overflow-y: auto;
+    display: none;
+  }
+  .site-search-results.open { display: block; }
+  .site-search-result {
+    padding: 8px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--surface-line);
+  }
+  .site-search-result:last-child { border-bottom: none; }
+  .site-search-result:hover { background: var(--ink); }
+  .site-search-result-name { color: var(--paper); }
+  .site-search-result-meta { color: var(--paper-dim); font-size: 11px; margin-top: 2px; }
+  .site-search-empty {
+    padding: 8px 10px;
+    font-size: 12px;
+    color: var(--paper-dim);
+  }
+
   .color-by {
     display: flex;
     align-items: center;
@@ -414,6 +462,14 @@
     .search-bar {
       width: calc(100% - 24px);
       padding: 6px 6px 6px 14px;
+    }
+    .site-search-bar {
+      width: calc(100% - 24px);
+      top: 108px;
+    }
+    .site-search-bar input {
+      font-size: 16px; /* prevents iOS Safari auto-zoom on focus */
+      padding: 10px 12px;
     }
     .search-bar input {
       font-size: 16px; /* prevents iOS Safari auto-zoom on focus */
@@ -501,6 +557,11 @@
       <button id="searchButton">Go</button>
     </div>
     <div class="search-status" id="searchStatus"></div>
+
+    <div class="site-search-bar">
+      <input type="text" id="siteSearchInput" placeholder="Search sites by name…" />
+      <div class="site-search-results" id="siteSearchResults"></div>
+    </div>
 
     <div class="filter-panel" id="filterPanel">
       <div class="filter-panel-header">
@@ -601,6 +662,8 @@
   const searchInputEl = document.getElementById("searchInput");
   const searchButtonEl = document.getElementById("searchButton");
   const searchStatusEl = document.getElementById("searchStatus");
+  const siteSearchInputEl = document.getElementById("siteSearchInput");
+  const siteSearchResultsEl = document.getElementById("siteSearchResults");
 
   colorBySelectEl.innerHTML = FILTER_DEFS
     .map((def) => `<option value="${def.key}">${escapeHtml(def.label)}</option>`)
@@ -831,6 +894,7 @@
   });
 
   let allPoints = [];
+  const markerById = new Map();
   let map = null;
   let markersLayer = null;
   let searchMarker = null;
@@ -881,6 +945,75 @@
   searchButtonEl.addEventListener("click", searchAddress);
   searchInputEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter") searchAddress();
+  });
+
+  function renderSiteSearchResults(query) {
+    const q = query.trim().toLowerCase();
+    if (!q) {
+      siteSearchResultsEl.classList.remove("open");
+      siteSearchResultsEl.innerHTML = "";
+      return;
+    }
+
+    // Search across ALL loaded sites, not just the currently filtered/visible
+    // ones — someone should be able to find a site by name even if it's
+    // hidden by an active filter right now.
+    const matches = allPoints
+      .filter((p) => (p.name || "").toLowerCase().includes(q))
+      .slice(0, 8);
+
+    if (matches.length === 0) {
+      siteSearchResultsEl.innerHTML = `<div class="site-search-empty">No matching sites.</div>`;
+      siteSearchResultsEl.classList.add("open");
+      return;
+    }
+
+    siteSearchResultsEl.innerHTML = matches
+      .map(
+        (p, i) => `
+          <div class="site-search-result" data-index="${i}">
+            <div class="site-search-result-name">${escapeHtml(p.name || "Untitled")}</div>
+            <div class="site-search-result-meta">${escapeHtml(p.priority || "Unknown")}</div>
+          </div>`
+      )
+      .join("");
+    siteSearchResultsEl.classList.add("open");
+
+    siteSearchResultsEl.querySelectorAll(".site-search-result").forEach((el) => {
+      // mousedown (not click) so this fires before the input's blur handler
+      // hides the dropdown out from under the click.
+      el.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        const point = matches[Number(el.dataset.index)];
+        focusOnSite(point);
+      });
+    });
+  }
+
+  function focusOnSite(point) {
+    map.setView([point.lat, point.lng], 15);
+    const marker = markerById.get(point.id);
+    if (marker) {
+      marker.openPopup();
+    } else {
+      // Site exists in the data but isn't currently rendered (hidden by an
+      // active filter) — still move the map there, just can't open a
+      // popup for a marker that doesn't exist right now.
+      searchStatusEl.style.display = "block";
+      searchStatusEl.textContent = `"${point.name}" is hidden by your current filters.`;
+    }
+    siteSearchInputEl.value = point.name || "";
+    siteSearchResultsEl.classList.remove("open");
+  }
+
+  siteSearchInputEl.addEventListener("input", () => {
+    renderSiteSearchResults(siteSearchInputEl.value);
+  });
+  siteSearchInputEl.addEventListener("focus", () => {
+    if (siteSearchInputEl.value.trim()) renderSiteSearchResults(siteSearchInputEl.value);
+  });
+  siteSearchInputEl.addEventListener("blur", () => {
+    setTimeout(() => siteSearchResultsEl.classList.remove("open"), 150);
   });
 
   const locateButtonEl = document.getElementById("locateButton");
@@ -1003,6 +1136,7 @@
 
   function renderPoints(points, { isFiltered } = {}) {
     markersLayer.clearLayers();
+    markerById.clear();
 
     const bounds = [];
     const presentValues = new Set();
@@ -1027,6 +1161,7 @@
       marker.bindPopup(buildPopupHtml(point));
 
       marker.addTo(markersLayer);
+      markerById.set(point.id, marker);
       bounds.push([point.lat, point.lng]);
     });
 
