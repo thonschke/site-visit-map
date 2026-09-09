@@ -158,6 +158,29 @@
   .leaflet-popup-content a { color: var(--accent); }
   .popup-title { font-weight: 600; margin-bottom: 2px; }
   .popup-priority { color: var(--paper-dim); font-size: 12px; margin-bottom: 6px; }
+  .popup-location { font-size: 12px; color: var(--paper-dim); margin-bottom: 8px; }
+  .popup-details {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 8px;
+    padding-top: 6px;
+    border-top: 1px solid var(--surface-line);
+  }
+  .popup-row {
+    display: flex;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .popup-label {
+    color: var(--paper-dim);
+    flex: 0 0 auto;
+    min-width: 90px;
+  }
+  .popup-value {
+    color: var(--paper);
+  }
 
   .filter-toggle {
     display: flex;
@@ -942,6 +965,35 @@
     return (await res.json()) || [];
   }
 
+  function popupRow(label, values) {
+    const arr = toArray(values);
+    if (arr.length === 0) return "";
+    return `
+      <div class="popup-row">
+        <span class="popup-label">${escapeHtml(label)}</span>
+        <span class="popup-value">${arr.map(escapeHtml).join(", ")}</span>
+      </div>`;
+  }
+
+  function buildPopupHtml(point) {
+    const locationParts = [point.county, point.state]
+      .flatMap((v) => toArray(v))
+      .filter(Boolean);
+
+    return `
+      <div class="popup-title">${escapeHtml(point.name || "Untitled")}</div>
+      <div class="popup-priority">${escapeHtml(point.priority || "Unknown")}</div>
+      ${locationParts.length ? `<div class="popup-location">${escapeHtml(locationParts.join(", "))}</div>` : ""}
+      <div class="popup-details">
+        ${popupRow("Trade", point.trades)}
+        ${popupRow("Status", point.status)}
+        ${popupRow("Public/Private", point.publicOrPrivate)}
+        ${popupRow("Union status", point.unionStatus)}
+      </div>
+      ${point.url ? `<a href="${point.url}" target="_blank" rel="noopener">Open in Notion →</a>` : ""}
+    `;
+  }
+
   function renderPoints(points, { isFiltered } = {}) {
     markersLayer.clearLayers();
 
@@ -965,11 +1017,7 @@
         weight: 1.5,
       });
 
-      marker.bindPopup(`
-        <div class="popup-title">${escapeHtml(point.name || "Untitled")}</div>
-        <div class="popup-priority">${escapeHtml(point.priority || "Unknown")}</div>
-        ${point.url ? `<a href="${point.url}" target="_blank" rel="noopener">Open in Notion</a>` : ""}
-      `);
+      marker.bindPopup(buildPopupHtml(point));
 
       marker.addTo(markersLayer);
       bounds.push([point.lat, point.lng]);
