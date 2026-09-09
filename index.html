@@ -975,6 +975,13 @@
       </div>`;
   }
 
+  function formatLastVisited(isoDate) {
+    if (!isoDate) return "No visits recorded";
+    const d = new Date(isoDate);
+    if (isNaN(d.getTime())) return "No visits recorded";
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+
   function buildPopupHtml(point) {
     const locationParts = [point.county, point.state]
       .flatMap((v) => toArray(v))
@@ -982,10 +989,10 @@
 
     return `
       <div class="popup-title">${escapeHtml(point.name || "Untitled")}</div>
-      <div class="popup-priority">${escapeHtml(point.priority || "Unknown")}</div>
+      <div class="popup-priority">Last visited: ${escapeHtml(formatLastVisited(point.lastVisitedDate))}</div>
       ${locationParts.length ? `<div class="popup-location">${escapeHtml(locationParts.join(", "))}</div>` : ""}
       <div class="popup-details">
-        ${popupRow("Trade", point.trades)}
+        ${popupRow("Trade", (point.trades || []).filter((t) => !TRADE_FILTER_EXCLUDED.has(t)))}
         ${popupRow("Status", point.status)}
         ${popupRow("Public/Private", point.publicOrPrivate)}
         ${popupRow("Union status", point.unionStatus)}
