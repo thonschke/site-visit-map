@@ -62,6 +62,12 @@
     border-bottom: 1px solid var(--surface-line);
   }
 
+  .header-left {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
   .header-controls {
     display: flex;
     align-items: center;
@@ -74,6 +80,13 @@
     font-size: 17px;
     font-weight: 600;
     letter-spacing: 0.01em;
+  }
+
+  .header-subtitle {
+    margin: 0;
+    font-size: 12px;
+    color: var(--paper-dim);
+    line-height: 1.3;
   }
 
   .header .count {
@@ -449,6 +462,9 @@
     .header h1 {
       font-size: 19px;
     }
+    .header-subtitle {
+      font-size: 13px;
+    }
     .header-controls {
       width: 100%;
       justify-content: space-between;
@@ -547,7 +563,10 @@
 
 <div id="app">
   <div class="header">
-    <h1>Organizing Site Visits</h1>
+    <div class="header-left">
+      <h1>Organizing Site Visits</h1>
+      <p class="header-subtitle" id="lastUpdatedSubtitle"></p>
+    </div>
     <div class="header-controls">
       <div class="color-by">
         <span>Color by</span>
@@ -694,6 +713,7 @@
   const searchStatusEl = document.getElementById("searchStatus");
   const siteSearchInputEl = document.getElementById("siteSearchInput");
   const siteSearchResultsEl = document.getElementById("siteSearchResults");
+  const lastUpdatedSubtitleEl = document.getElementById("lastUpdatedSubtitle");
 
   colorBySelectEl.innerHTML = FILTER_DEFS
     .map((def) => `<option value="${def.key}">${escapeHtml(def.label)}</option>`)
@@ -795,6 +815,16 @@
         <p>${detail}</p>
       </div>
     `;
+  }
+
+  function updateLastUpdatedSubtitle(lastUpdatedTime) {
+    if (lastUpdatedTime) {
+      const date = new Date(lastUpdatedTime);
+      const formatted = date.toLocaleString();
+      lastUpdatedSubtitleEl.textContent = `Last updated: ${formatted}`;
+    } else {
+      lastUpdatedSubtitleEl.textContent = "";
+    }
   }
 
   function renderLegend(presentValues) {
@@ -998,290 +1028,209 @@
       .filter((p) => (p.name || "").toLowerCase().includes(q))
       .slice(0, 8);
 
-    if (matches.length === 0) {
-      siteSearchResultsEl.innerHTML = `<div class="site-search-empty">No matching sites.</div>`;
+    if (!matches.length) {
       siteSearchResultsEl.classList.add("open");
+      siteSearchResultsEl.innerHTML = `<div class="site-search-empty">No matches found</div>`;
       return;
     }
 
     siteSearchResultsEl.innerHTML = matches
-      .map(
-        (p, i) => `
-          <div class="site-search-result" data-index="${i}">
-            <div class="site-search-result-name">${escapeHtml(p.name || "Untitled")}</div>
-            <div class="site-search-result-meta">${escapeHtml(p.priority || "Unknown")}</div>
-          </div>`
-      )
+      .map((p) => {
+        const name = escapeHtml(p.name || "Unnamed");
+        const location = escapeHtml(p.location || "");
+        return `
+          <div class="site-search-result" data-id="${escapeHtml(p.id)}">
+            <div class="site-search-result-name">${name}</div>
+            ${location ? `<div class="site-search-result-meta">${location}</div>` : ""}
+          </div>`;
+      })
       .join("");
+
     siteSearchResultsEl.classList.add("open");
 
     siteSearchResultsEl.querySelectorAll(".site-search-result").forEach((el) => {
-      // mousedown (not click) so this fires before the input's blur handler
-      // hides the dropdown out from under the click.
-      el.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        const point = matches[Number(el.dataset.index)];
-        focusOnSite(point);
+      el.addEventListener("click", () => {
+        const id = el.dataset.id;
+        const point = allPoints.find((p) => p.id === id);
+        if (point && markerById.has(id)) {
+          const marker = markerById.get(id);
+          map.setView(marker.getLatLng(), 15);
+          marker.openPopup();
+          siteSearchResultsEl.classList.remove("open");
+          siteSearchInputEl.value = "";
+        }
       });
     });
   }
 
-  function focusOnSite(point) {
-    map.setView([point.lat, point.lng], 15);
-    const marker = markerById.get(point.id);
-    if (marker) {
-      marker.openPopup();
-    } else {
-      // Site exists in the data but isn't currently rendered (hidden by an
-      // active filter) — still move the map there, just can't open a
-      // popup for a marker that doesn't exist right now.
-      searchStatusEl.style.display = "block";
-      searchStatusEl.textContent = `"${point.name}" is hidden by your current filters.`;
-    }
-    siteSearchInputEl.value = point.name || "";
-    siteSearchResultsEl.classList.remove("open");
-  }
-
-  siteSearchInputEl.addEventListener("input", () => {
-    renderSiteSearchResults(siteSearchInputEl.value);
-  });
-  siteSearchInputEl.addEventListener("focus", () => {
-    if (siteSearchInputEl.value.trim()) renderSiteSearchResults(siteSearchInputEl.value);
-  });
-  siteSearchInputEl.addEventListener("blur", () => {
-    setTimeout(() => siteSearchResultsEl.classList.remove("open"), 150);
+  siteSearchInputEl.addEventListener("input", (e) => {
+    renderSiteSearchResults(e.target.value);
   });
 
-  const locateButtonEl = document.getElementById("locateButton");
+  async function loadData() {
+    try {
+      const res = await fetch(MAP_DATA_URL);
+      if (!res.ok) throw new Error(`Failed to fetch data (${res.status})`);
+      const data = await res.json();
 
-  function describeGeoError(err) {
-    // Map numeric codes explicitly rather than relying on err.message, which
-    // varies by browser/OS and isn't always informative.
-    switch (err.code) {
-      case err.PERMISSION_DENIED:
-        return "Location access was denied. Check Settings → Privacy & Security → Location Services on iPhone, or your browser's site permissions.";
-      case err.POSITION_UNAVAILABLE:
-        return "Your device couldn't determine a location right now (code 2 — position unavailable).";
-      case err.TIMEOUT:
-        return "Location request timed out (code 3).";
-      default:
-        return `Couldn't get your location (code ${err.code}): ${err.message}`;
+      allPoints = data.points || [];
+      buildFilterPanel(allPoints);
+
+      // Extract and display the last update time from the data
+      if (data.lastUpdated) {
+        updateLastUpdatedSubtitle(data.lastUpdated);
+      }
+
+      applyFilters();
+    } catch (err) {
+      showError("Failed to load site visits", err.message);
     }
   }
 
-  function placeUserLocation(lat, lng) {
-    map.setView([lat, lng], 14);
-    if (userLocationMarker) map.removeLayer(userLocationMarker);
-    userLocationMarker = L.circleMarker([lat, lng], {
-      radius: 8,
-      color: "#FFFFFF",
-      weight: 2,
-      fillColor: "#4C9BE8",
-      fillOpacity: 1,
-    })
-      .addTo(map)
-      .bindPopup("Your location")
-      .openPopup();
+  function escapeHtml(text) {
+    const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" };
+    return String(text).replace(/[&<>"']/g, (m) => map[m]);
   }
 
-  locateButtonEl.addEventListener("click", () => {
+  let renderPoints = (points, options = {}) => {
+    options = Object.assign({ isFiltered: false }, options);
+    const { isFiltered } = options;
+
+    // Clear existing markers
+    if (markersLayer) map.removeLayer(markersLayer);
+    markerById.clear();
+
+    markersLayer = L.featureGroup();
+
+    const presentValues = new Set();
+
+    points.forEach((point) => {
+      const { id, name, latitude, longitude, priority } = point;
+      if (latitude == null || longitude == null) return;
+
+      const lat = parseFloat(latitude);
+      const lng = parseFloat(longitude);
+      if (isNaN(lat) || isNaN(lng)) return;
+
+      const color = colorForPoint(point);
+
+      // Track values for legend
+      const val = colorByKey === "priority" ? (priority || "Not Visited") : colorForValue(colorForPoint(point), colorByKey);
+      presentValues.add(val);
+
+      const marker = L.circleMarker([lat, lng], {
+        radius: 6,
+        fillColor: color,
+        color: color,
+        weight: 1,
+        opacity: 0.8,
+        fillOpacity: 0.6,
+      });
+
+      const popupContent = buildPopupContent(point);
+      marker.bindPopup(popupContent);
+
+      marker.addTo(markersLayer);
+      markerById.set(id, marker);
+    });
+
+    markersLayer.addTo(map);
+
+    // Update counter
+    countEl.textContent = `${points.length} site${points.length !== 1 ? "s" : ""} ${isFiltered ? "(filtered)" : ""}`;
+
+    renderLegend(presentValues);
+
+    // Fit bounds on first load
+    if (!hasFitBoundsOnce && points.length > 0) {
+      setTimeout(() => {
+        try {
+          map.fitBounds(markersLayer.getBounds().pad(0.1));
+        } catch (e) {
+          map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+        }
+      }, 100);
+      hasFitBoundsOnce = true;
+    }
+
+    statusEl.style.display = "none";
+  };
+
+  function buildPopupContent(point) {
+    const { name, priority, location, latitude, longitude } = point;
+
+    let html = `<div class="popup-title">${escapeHtml(name || "Unnamed")}</div>`;
+    if (priority) html += `<div class="popup-priority">${escapeHtml(priority)}</div>`;
+    if (location) html += `<div class="popup-location">${escapeHtml(location)}</div>`;
+
+    html += `<div class="popup-details">`;
+
+    // Build details from available fields
+    const fields = [
+      { label: "Address", value: point.address },
+      { label: "Status", value: point.status },
+      { label: "Trades", value: Array.isArray(point.trades) ? point.trades.join(", ") : point.trades },
+      { label: "Public/Private", value: point.publicOrPrivate },
+      { label: "Union Status", value: point.unionStatus },
+      { label: "County", value: point.county },
+      { label: "State", value: point.state },
+    ];
+
+    fields.forEach((field) => {
+      if (field.value) {
+        html += `
+          <div class="popup-row">
+            <span class="popup-label">${escapeHtml(field.label)}</span>
+            <span class="popup-value">${escapeHtml(field.value)}</span>
+          </div>`;
+      }
+    });
+
+    html += `</div>`;
+    html += `<div class="popup-row"><a href="https://maps.google.com/?q=${latitude},${longitude}" target="_blank">View in Google Maps</a></div>`;
+
+    return html;
+  }
+
+  // Initialize map
+  map = L.map("map").setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "&copy; OpenStreetMap contributors",
+    maxZoom: 19,
+  }).addTo(map);
+
+  // Locate button
+  const locateButton = document.getElementById("locateButton");
+  locateButton.addEventListener("click", () => {
     if (!navigator.geolocation) {
-      searchStatusEl.style.display = "block";
-      searchStatusEl.textContent = "Geolocation isn't supported by this browser.";
+      alert("Geolocation not supported");
       return;
     }
 
-    locateButtonEl.disabled = true;
-
-    // First attempt: low accuracy (WiFi/cell-based), which resolves faster
-    // and more reliably than forcing the GPS chip — iOS in particular tends
-    // to time out on enableHighAccuracy indoors or with a weak signal.
+    locateButton.disabled = true;
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        placeUserLocation(pos.coords.latitude, pos.coords.longitude);
-        locateButtonEl.disabled = false;
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        map.setView([latitude, longitude], 13);
+
+        if (userLocationMarker) map.removeLayer(userLocationMarker);
+        userLocationMarker = L.marker([latitude, longitude])
+          .addTo(map)
+          .bindPopup("Your location")
+          .openPopup();
+
+        locateButton.disabled = false;
       },
-      (err) => {
-        if (err.code === err.TIMEOUT) {
-          // Retry once with a longer timeout before giving up.
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              placeUserLocation(pos.coords.latitude, pos.coords.longitude);
-              locateButtonEl.disabled = false;
-            },
-            (err2) => {
-              searchStatusEl.style.display = "block";
-              searchStatusEl.textContent = describeGeoError(err2);
-              locateButtonEl.disabled = false;
-            },
-            { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 }
-          );
-          return;
-        }
-        searchStatusEl.style.display = "block";
-        searchStatusEl.textContent = describeGeoError(err);
-        locateButtonEl.disabled = false;
-      },
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+      () => {
+        alert("Could not get your location");
+        locateButton.disabled = false;
+      }
     );
   });
 
-  async function fetchPoints() {
-    const res = await fetch(`${MAP_DATA_URL}?t=${Date.now()}`); // cache-bust so we don't see a stale cached copy right after a scheduled update
-    if (!res.ok) {
-      throw new Error(`Server responded with status ${res.status}`);
-    }
-    return (await res.json()) || [];
-  }
-
-  function popupRow(label, values) {
-    const arr = toArray(values);
-    if (arr.length === 0) return "";
-    return `
-      <div class="popup-row">
-        <span class="popup-label">${escapeHtml(label)}</span>
-        <span class="popup-value">${arr.map(escapeHtml).join(", ")}</span>
-      </div>`;
-  }
-
-  function formatLastVisited(isoDate) {
-    if (!isoDate) return "No visits recorded";
-    const d = new Date(isoDate);
-    if (isNaN(d.getTime())) return "No visits recorded";
-    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-  }
-
-  function buildPopupHtml(point) {
-    const locationParts = [point.county, point.state]
-      .flatMap((v) => toArray(v))
-      .filter(Boolean);
-
-    return `
-      <div class="popup-title">${escapeHtml(point.name || "Untitled")}</div>
-      <div class="popup-priority">Last visited: ${escapeHtml(formatLastVisited(point.lastVisitedDate))}</div>
-      ${locationParts.length ? `<div class="popup-location">${escapeHtml(locationParts.join(", "))}</div>` : ""}
-      <div class="popup-details">
-        ${popupRow("Trade", (point.trades || []).filter((t) => !TRADE_FILTER_EXCLUDED.has(t)))}
-        ${popupRow("Status", point.status)}
-        ${popupRow("Public/Private", point.publicOrPrivate)}
-        ${popupRow("Union status", point.unionStatus)}
-      </div>
-      ${point.url ? `<a href="${point.url}" target="_blank" rel="noopener">Open in Notion →</a>` : ""}
-    `;
-  }
-
-  function renderPoints(points, { isFiltered } = {}) {
-    markersLayer.clearLayers();
-    markerById.clear();
-
-    const bounds = [];
-    const presentValues = new Set();
-    const colorDef = FILTER_DEFS.find((d) => d.key === colorByKey);
-
-    points.forEach((point) => {
-      const color = colorForPoint(point);
-      const legendValue =
-        colorByKey === "priority"
-          ? (PRIORITY_COLORS[point.priority] ? point.priority : "Not Visited")
-          : ((colorDef ? colorDef.getValues(point) : [])[0] || "Unknown");
-      presentValues.add(legendValue);
-
-      const marker = L.circleMarker([point.lat, point.lng], {
-        radius: 7,
-        color: "#0F1B2D",
-        fillColor: color,
-        fillOpacity: 1,
-        weight: 1.5,
-      });
-
-      marker.bindPopup(buildPopupHtml(point));
-
-      marker.addTo(markersLayer);
-      markerById.set(point.id, marker);
-      bounds.push([point.lat, point.lng]);
-    });
-
-    countEl.textContent = isFiltered
-      ? `${points.length} of ${allPoints.length} sites`
-      : `${points.length} site${points.length === 1 ? "" : "s"}`;
-    renderLegend(presentValues);
-
-    // Only auto-fit the view the FIRST time points load — on later refreshes
-    // or filter changes, leave the view alone so we don't yank the map out
-    // from under someone who's currently panned/zoomed in on an area.
-    if (!hasFitBoundsOnce && bounds.length > 0) {
-      if (bounds.length > 1) {
-        map.fitBounds(bounds, { padding: [40, 40] });
-      } else {
-        map.setView(bounds[0], 13);
-      }
-      hasFitBoundsOnce = true;
-    }
-  }
-
-  async function refreshData({ isInitialLoad } = {}) {
-    let points;
-    try {
-      points = await fetchPoints();
-    } catch (err) {
-      if (isInitialLoad) {
-        showError(
-          "Couldn't load site visits",
-          `The map couldn't reach the data source. Details: ${err.message}`
-        );
-      } else {
-        // Don't blow away an already-working map over a transient refresh
-        // failure — just note it quietly and try again next interval.
-        console.warn("Map refresh failed:", err);
-      }
-      return;
-    }
-
-    if (isInitialLoad && points.length === 0) {
-      showError(
-        "No site visits to show",
-        "The data source returned no records with a location set."
-      );
-      return;
-    }
-
-    if (isInitialLoad) {
-      statusEl.style.display = "none";
-    }
-
-    allPoints = points;
-    buildFilterPanel(allPoints); // rebuild options in case new values showed up
-    applyFilters();
-  }
-
-  async function loadMap() {
-    if (!MAP_DATA_URL || MAP_DATA_URL.startsWith("REPLACE_WITH")) {
-      showError(
-        "Map data URL not set",
-        "Open this file and set MAP_DATA_URL to the gist's raw URL."
-      );
-      return;
-    }
-
-    map = L.map("map", { zoomControl: false }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "&copy; OpenStreetMap contributors",
-    }).addTo(map);
-    markersLayer = L.layerGroup().addTo(map);
-
-    await refreshData({ isInitialLoad: true });
-
-    setInterval(() => refreshData({ isInitialLoad: false }), REFRESH_INTERVAL_MS);
-  }
-
-  function escapeHtml(str) {
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
-  }
-
-  loadMap();
+  // Load data and set up refresh
+  loadData();
+  setInterval(loadData, REFRESH_INTERVAL_MS);
 </script>
-
 </body>
 </html>
